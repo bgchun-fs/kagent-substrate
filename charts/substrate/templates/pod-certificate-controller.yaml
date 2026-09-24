@@ -24,10 +24,19 @@ standalone substrate release, or as a parent chart installing substrate as a
 subchart alongside one.
 */}}
 {{- if .Values.podCertificateController.enabled }}
+{{/*
+The controller runs in the release namespace, with its own ServiceAccount, and
+mounts service-dns-ca-pool and pod-identity-ca-pool from there. It used to run
+in a fixed namespace of its own, on that namespace's default ServiceAccount --
+which is why the SA is explicit here: the signer ClusterRole below is granted
+to it, and in a shared namespace `default` is inherited by every pod that names
+no ServiceAccount.
+*/}}
 apiVersion: v1
-kind: Namespace
+kind: ServiceAccount
 metadata:
-  name: podcertificate-controller-system
+  name: {{ include "substrate.fullname" (list "podcertificate-controller" .) }}
+  namespace: {{ .Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -97,14 +106,14 @@ roleRef:
   name: {{ include "substrate.fullname" (list "podcert-ate-dev-signer" .) }}
 subjects:
 - kind: ServiceAccount
-  namespace: podcertificate-controller-system
-  name: default
+  namespace: {{ .Release.Namespace }}
+  name: {{ include "substrate.fullname" (list "podcertificate-controller" .) }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  namespace: podcertificate-controller-system
-  name: coordinator
+  namespace: {{ .Release.Namespace }}
+  name: {{ include "substrate.fullname" (list "podcert-coordinator" .) }}
 rules:
 - apiGroups:
   - "coordination.k8s.io"
@@ -121,22 +130,22 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: podcertificate-controller-is-a-coordinator
-  namespace: podcertificate-controller-system
+  name: {{ include "substrate.fullname" (list "podcert-coordinator" .) }}
+  namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: coordinator
+  name: {{ include "substrate.fullname" (list "podcert-coordinator" .) }}
 subjects:
 - kind: ServiceAccount
-  namespace: podcertificate-controller-system
-  name: default
+  namespace: {{ .Release.Namespace }}
+  name: {{ include "substrate.fullname" (list "podcertificate-controller" .) }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: podcertificate-controller
-  namespace: podcertificate-controller-system
+  name: {{ include "substrate.fullname" (list "podcertificate-controller" .) }}
+  namespace: {{ .Release.Namespace }}
   labels:
     app: podcertificate-controller
 spec:
@@ -158,7 +167,7 @@ spec:
         - --sharding-pod-namespace=$(POD_NAMESPACE)
         - --sharding-pod-name=$(POD_NAME)
         - --sharding-pod-uid=$(POD_UID)
-        - --sharding-application-name=podcertificate-controller
+        - --sharding-application-name={{ include "substrate.fullname" (list "podcertificate-controller" .) }}
         - --service-dns-ca-pool=/run/ca-state/service-dns-pool.json
         - --pod-identity-ca-pool=/run/ca-state/pod-identity-pool.json
         env:
@@ -205,6 +214,6 @@ spec:
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext: {}
-      serviceAccountName: default
+      serviceAccountName: {{ include "substrate.fullname" (list "podcertificate-controller" .) }}
       terminationGracePeriodSeconds: 30
 {{- end }}
