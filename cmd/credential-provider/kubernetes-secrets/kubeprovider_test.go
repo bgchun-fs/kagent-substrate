@@ -171,6 +171,12 @@ func TestFetchSecretAuthorization(t *testing.T) {
 			wantCode:      codes.PermissionDenied,
 		},
 		{
+			name:          "ateom identity",
+			actorSpiffeID: "spiffe://substrate-actor.local/ateom-for-actor/team-a/my-actor",
+			uri:           "ate-secret://k8s.io/default/ns1/example-api/token",
+			wantCode:      codes.PermissionDenied,
+		},
+		{
 			name:          "garbage identity",
 			actorSpiffeID: "not-a-spiffe-uri",
 			uri:           "ate-secret://k8s.io/default/ns1/example-api/token",
@@ -268,7 +274,7 @@ func TestFetchSecret(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := fake.NewSimpleClientset(secret, multiKey)
 			srv := NewServer(client, &NamespaceAuthorizer{allowed: map[string]map[string]struct{}{"team-a": {"ns1": {}}}})
-			resp, err := srv.FetchSecret(context.Background(), &credproviderpb.FetchSecretRequest{Uri: tc.uri, ActorSpiffeId: "spiffe://substrate-actor.local/atespace/team-a/actor/my-actor"})
+			resp, err := srv.FetchSecret(context.Background(), &credproviderpb.FetchSecretRequest{Uri: tc.uri, ActorSpiffeId: "spiffe://substrate-actor.local/actor/team-a/my-actor"})
 			if tc.wantCode != codes.OK {
 				if status.Code(err) != tc.wantCode {
 					t.Fatalf("FetchSecret(%q) code = %v, want %v (err=%v)", tc.uri, status.Code(err), tc.wantCode, err)
@@ -331,7 +337,7 @@ func TestFetchSecretKubernetesErrors(t *testing.T) {
 			client.PrependReactor("get", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, tc.err })
 			srv := NewServer(client, &NamespaceAuthorizer{allowed: map[string]map[string]struct{}{"team-a": {"ns1": {}}}})
 			_, err := srv.FetchSecret(t.Context(), &credproviderpb.FetchSecretRequest{
-				Uri: "ate-secret://k8s.io/default/ns1/api/token", ActorSpiffeId: "spiffe://substrate-actor.local/atespace/team-a/actor/a",
+				Uri: "ate-secret://k8s.io/default/ns1/api/token", ActorSpiffeId: "spiffe://substrate-actor.local/actor/team-a/a",
 			})
 			if status.Code(err) != tc.code {
 				t.Fatalf("FetchSecret: %v, want %v", err, tc.code)
@@ -347,7 +353,7 @@ func TestFetchSecretObservesRotation(t *testing.T) {
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "ns1"}, Data: map[string][]byte{"token": []byte("first")}}
 	client := fake.NewSimpleClientset(secret)
 	srv := NewServer(client, &NamespaceAuthorizer{allowed: map[string]map[string]struct{}{"team-a": {"ns1": {}}}})
-	req := &credproviderpb.FetchSecretRequest{Uri: "ate-secret://k8s.io/default/ns1/api/token", ActorSpiffeId: "spiffe://substrate-actor.local/atespace/team-a/actor/a"}
+	req := &credproviderpb.FetchSecretRequest{Uri: "ate-secret://k8s.io/default/ns1/api/token", ActorSpiffeId: "spiffe://substrate-actor.local/actor/team-a/a"}
 	first, err := srv.FetchSecret(t.Context(), req)
 	if err != nil || string(first.GetOpaqueBytes()) != "first" {
 		t.Fatalf("first fetch: %v, %v", first, err)
