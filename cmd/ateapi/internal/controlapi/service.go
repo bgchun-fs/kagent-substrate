@@ -52,9 +52,9 @@ type RPCService struct {
 	volumePlugins         map[string]volume.VolumePluginControlPlane
 	objectStore           objectstore.Store
 
-	actorIdentityJWTIssuer string
-	actorIDJWTPool         localjwtauthority.Pool
-	actorIDCAPool          localca.Pool
+	actorJWTIssuer string
+	actorIDJWTPool localjwtauthority.Pool
+	actorIDCAPool  localca.Pool
 }
 
 var _ ateapipb.ControlServer = (*RPCService)(nil)
@@ -64,8 +64,17 @@ type VolumePluginRegistry interface {
 	GetPlugin(ctx context.Context, name string) (volume.VolumePluginControlPlane, error)
 }
 
-// NewRPCService creates an RPC service. actorWorkflowDeadline bounds how long a single
-// Resume/Suspend workflow can run end-to-end. instruments and objectStore may be nil.
+// NewRPCService creates an instance of the ControlServer service. This is what
+// implements the outward-facing RPC interface.
+//
+// instruments may be nil; the record helpers no-op.
+//
+// objectStore may be nil, which leaves external snapshots in place instead of
+// copying and releasing them. Only tests that never reach those steps pass nil;
+// ate-api always builds one.
+//
+// actorJWTIssuer is copied verbatim into the iss claim of every actor JWT.
+// actorWorkflowDeadline bounds each Resume/Suspend workflow end-to-end.
 func NewRPCService(
 	persistence store.Interface,
 	workerCache *workercache.Cache,
@@ -78,24 +87,24 @@ func NewRPCService(
 	actorWorkflowDeadline time.Duration,
 	volumePlugins map[string]volume.VolumePluginControlPlane,
 	objectStore objectstore.Store,
-	actorIdentityJWTIssuer string,
+	actorJWTIssuer string,
 	actorIDJWTPool localjwtauthority.Pool,
 	actorIDCAPool localca.Pool,
 ) *RPCService {
 	impl := newServiceImpl(persistence, storageClassLister)
 	s := &RPCService{
-		impl:                   impl,
-		persistence:            persistence,
-		workerCache:            workerCache,
-		sandboxConfigLister:    sandboxConfigLister,
-		csiDriverConfigLister:  csiDriverConfigLister,
-		dialer:                 dialer,
-		instruments:            instruments,
-		volumePlugins:          volumePlugins,
-		objectStore:            objectStore,
-		actorIdentityJWTIssuer: actorIdentityJWTIssuer,
-		actorIDJWTPool:         actorIDJWTPool,
-		actorIDCAPool:          actorIDCAPool,
+		impl:                  impl,
+		persistence:           persistence,
+		workerCache:           workerCache,
+		sandboxConfigLister:   sandboxConfigLister,
+		csiDriverConfigLister: csiDriverConfigLister,
+		dialer:                dialer,
+		instruments:           instruments,
+		volumePlugins:         volumePlugins,
+		objectStore:           objectStore,
+		actorJWTIssuer:        actorJWTIssuer,
+		actorIDJWTPool:        actorIDJWTPool,
+		actorIDCAPool:         actorIDCAPool,
 	}
 	s.actorWorkflow = NewActorWorkflow(impl, workerCache, dialer, sandboxConfigLister, storageClassLister, instruments, egressGatewayAddress, s, actorWorkflowDeadline, objectStore)
 	s.workerWorkflow = NewWorkerWorkflow(impl)
