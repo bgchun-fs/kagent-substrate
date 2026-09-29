@@ -361,6 +361,18 @@ func (s *AteomService) restoreFullScope(ctx context.Context, p actorBootParams, 
 		return fmt.Errorf("while resuming restored guest: %w", err)
 	}
 	tResume := time.Now()
+	guestAC, err := dialAgentRetry(ctx, kata.VsockSocketPath(actorUID), 15*time.Second)
+	if err != nil {
+		return fmt.Errorf("while dialing restored kata-agent: %w", err)
+	}
+	defer func() {
+		if retErr != nil {
+			_ = guestAC.Close()
+		}
+	}()
+	if err := guestAC.SynchronizeAfterRestore(ctx); err != nil {
+		return fmt.Errorf("while synchronizing restored guest: %w", err)
+	}
 
 	// Block until every wakeup-probe-enabled container reports 200.
 	if err := wakeupprobe.WaitAll(ctx, containers, ateomnet.ActorVethIP, wakeupprobe.DialFunc(s.sandboxDialer(actorUID))); err != nil {
@@ -408,21 +420,11 @@ func (s *AteomService) restoreFullScope(ctx context.Context, p actorBootParams, 
 		workloadIDs: workloadIDs(ctrs),
 	}
 
-	// Re-attach stdout/stderr forwarding for each container: the restored guest's
-	// containers + kata-agent are alive, so a fresh dial over this actor's vsock
-	// resumes ReadStdout/ReadStderr. Best-effort — a failed dial must not fail the
-	// restore (the actor is already running); forwarding is just skipped.
-	vsockPath := kata.VsockSocketPath(actorUID)
-	guestAC, dialErr := dialAgentRetry(ctx, vsockPath, 15*time.Second)
-	if dialErr != nil {
-		slog.WarnContext(ctx, "post-restore agent dial failed; actor log forwarding and guest stats disabled for this restore",
-			slog.String("id", actorUID), slog.Any("err", dialErr))
-	} else {
-		ra.guestAgent = guestAC
-		attribution := p.actorAttribution()
-		for _, c := range containers {
-			s.startActorLogForwarding(guestAC, attribution, c.GetName(), c.GetName())
-		}
+	// Reuse the synchronized guest connection for logs and stats until teardown.
+	ra.guestAgent = guestAC
+	attribution := p.actorAttribution()
+	for _, c := range containers {
+		s.startActorLogForwarding(guestAC, attribution, c.GetName(), c.GetName())
 	}
 
 	if err := s.activateActorNetworking(p.attribution(), egress); err != nil {
@@ -430,15 +432,8 @@ func (s *AteomService) restoreFullScope(ctx context.Context, p actorBootParams, 
 	}
 	s.setRunningVM(actorUID, ra)
 
-	// Publish the guest to GetWorkloadStats, past the last error return above
-	// for the same reason as in coldBootActor. Skipped when the dial failed:
-	// telemetry rides on the forwarding connection, so that activation answers
-	// FAILED_PRECONDITION until its next checkpoint. Not worth a second dial of
-	// its own — whatever kept the agent from answering a 15s retry loop would
-	// keep it from answering that one too.
-	if ra.guestAgent != nil {
-		s.setGuestStats(actorUID, &guestStatsTarget{actorUID: actorUID, agent: ra.guestAgent, workloadIDs: ra.workloadIDs})
-	}
+	// Publish stats only after activation succeeds.
+	s.setGuestStats(actorUID, &guestStatsTarget{actorUID: actorUID, agent: ra.guestAgent, workloadIDs: ra.workloadIDs})
 
 	slog.InfoContext(ctx, "Actor restored (overlay rootfs)",
 		slog.String("id", actorUID), slog.Duration("total", time.Since(tStart)))

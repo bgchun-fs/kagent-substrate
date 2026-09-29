@@ -43,7 +43,12 @@ the message types are needed.
 
 ateom drives a small subset of `AgentService`:
 `CreateSandbox`, `CreateContainer`, `StartContainer`, `UpdateInterface`, `UpdateRoutes`,
-`AddARPNeighbors`, `ReadStdout`, `ReadStderr`.
+`AddARPNeighbors`, `ReadStdout`, `ReadStderr`, `ReseedRandomDev`, `SetGuestDateTime`.
+
+Restore calls `ReseedRandomDev` with fresh host entropy and `SetGuestDateTime`
+before wakeup probes and actor network activation. Kata's reseed implementation
+forces `RNDRESEEDCRNG`; merely supplying a virtio-rng device does not invalidate
+the random stream preserved in a VM snapshot.
 
 ### Regenerating
 
