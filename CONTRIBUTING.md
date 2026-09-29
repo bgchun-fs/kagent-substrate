@@ -33,9 +33,6 @@ the microVM runtime locally — which needs `/dev/kvm`, or Lima nested
 virtualization on Apple Silicon — see
 [docs/dev/microvm-local.md](docs/dev/microvm-local.md).
 
-To publish an agentgateway data plane image from a specific source commit, see
-[Building agentgateway images](docs/dev/agentgateway-images.md).
-
 ## Contribution process
 
 This is a very new project, so we are still working out exactly how it is going
