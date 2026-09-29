@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -370,8 +371,15 @@ func (s *AteomService) restoreFullScope(ctx context.Context, p actorBootParams, 
 			_ = guestAC.Close()
 		}
 	}()
-	if err := guestAC.SynchronizeAfterRestore(ctx); err != nil {
-		return fmt.Errorf("while synchronizing restored guest: %w", err)
+	// Refresh state cloned with guest memory before exposing the actor. Virtio-rng
+	// does not force a reseed, and VMM clock advancement can leave wall time skewed.
+	var seed [256]byte
+	rand.Read(seed[:])
+	if err := guestAC.ReseedRandomDev(ctx, seed[:]); err != nil {
+		return fmt.Errorf("while reseeding restored guest: %w", err)
+	}
+	if err := guestAC.SetGuestDateTime(ctx, time.Now()); err != nil {
+		return fmt.Errorf("while synchronizing restored guest clock: %w", err)
 	}
 
 	// Block until every wakeup-probe-enabled container reports 200.

@@ -19,7 +19,6 @@ package kata
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
 	"fmt"
 	"io"
 	"net"
@@ -135,17 +134,17 @@ func (a *AgentClient) Close() error {
 	return err
 }
 
-// SynchronizeAfterRestore refreshes state cloned with guest memory before the
-// actor is exposed to requests. A virtio-rng device alone does not force the
-// kernel to discard its snapshotted random stream, and VMM clock advancement
-// does not guarantee that guest wall time agrees with the current host.
-func (a *AgentClient) SynchronizeAfterRestore(ctx context.Context) error {
-	var seed [256]byte
-	rand.Read(seed[:])
-	if err := a.client.Call(ctx, "grpc.AgentService", "ReseedRandomDev", &agentpb.ReseedRandomDevRequest{Data: seed[:]}, &emptypb.Empty{}); err != nil {
+// ReseedRandomDev forces the guest kernel to reseed its RNG with host entropy.
+func (a *AgentClient) ReseedRandomDev(ctx context.Context, seed []byte) error {
+	req := &agentpb.ReseedRandomDevRequest{Data: seed}
+	if err := a.client.Call(ctx, "grpc.AgentService", "ReseedRandomDev", req, &emptypb.Empty{}); err != nil {
 		return fmt.Errorf("agent ReseedRandomDev: %w", err)
 	}
-	now := time.Now()
+	return nil
+}
+
+// SetGuestDateTime sets the guest wall clock to the supplied host time.
+func (a *AgentClient) SetGuestDateTime(ctx context.Context, now time.Time) error {
 	req := &agentpb.SetGuestDateTimeRequest{Sec: now.Unix(), Usec: int64(now.Nanosecond() / 1000)}
 	if err := a.client.Call(ctx, "grpc.AgentService", "SetGuestDateTime", req, &emptypb.Empty{}); err != nil {
 		return fmt.Errorf("agent SetGuestDateTime: %w", err)
