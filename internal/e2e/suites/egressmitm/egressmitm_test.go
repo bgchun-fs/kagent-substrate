@@ -129,10 +129,14 @@ func TestActorEgressMITMTrust(t *testing.T) {
 		t.Errorf("fetch with system roots failed, but not with a certificate-verification error: %s", neg.Error)
 	}
 
-	// The policy names example.com only, so another host is refused. Encapsulated
-	// TLS connection is closed since SNI does not match the policy.
+	// The policy names example.com only, so another host is refused. AGW
+	// intercepts TLS and returns HTTP 403; Envoy closes the connection at SNI.
 	denied := probeFetch(t, ctx, rc, id, "https://example.org/", "bundle")
-	if denied.Error != "Get \"https://example.org/\": EOF" {
+	if os.Getenv(e2e.AtenetDataplaneEnv) == "agentgateway" {
+		if denied.Error != "" || denied.Status != "403" {
+			t.Errorf("fetch of a host outside the policy: error %q, status %s, want HTTP 403", denied.Error, denied.Status)
+		}
+	} else if denied.Error != "Get \"https://example.org/\": EOF" {
 		t.Errorf("fetch of a host outside the policy did not fail at the transport. Error: %s. Status: %s", denied.Error, denied.Status)
 	}
 }
