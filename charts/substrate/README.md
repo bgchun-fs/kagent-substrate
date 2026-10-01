@@ -85,7 +85,8 @@ role before updating its connection Secret.
 Substrate runs `SET ROLE` for each new connection. It rejects a login without
 the required membership.
 
-Create both group roles and all grants before installation, then set `postgres.readWriteRole` and
-`postgres.ownerRole` to those names. Use distinct roles and table schemas for
-separate installs sharing one database. Give each install separate logins and
-grant each login membership only in its install's roles.
+Create both group roles and all grants before installation, then set
+`postgres.readWriteRole` and `postgres.ownerRole` to those names. Use distinct
+roles and table schemas for separate installs sharing one database. Give each
+install separate logins and grant each login membership only in its install's
+roles.

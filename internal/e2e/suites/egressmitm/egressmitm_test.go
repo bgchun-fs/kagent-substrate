@@ -129,20 +129,41 @@ func TestActorEgressMITMTrust(t *testing.T) {
 		t.Errorf("fetch with system roots failed, but not with a certificate-verification error: %s", neg.Error)
 	}
 
-	// The policy names example.com only, so another host is refused. AGW
-	// intercepts TLS and returns HTTP 403; Envoy closes the connection at SNI.
+	// The passthrough origin has to be validated with the system CAs, since egress gateway
+	// does not terminate TLS.
+	const passthrughOrigin = "https://" + egressOriginPassthroughHost + "/"
+	pos = probeFetch(t, ctx, rc, id, passthrughOrigin, "system")
+	if pos.Error != "" {
+		t.Fatalf("TLS passthrough with the system trust bundle failed: %s", pos.Error)
+	}
+	if pos.Status != "200" {
+		t.Fatalf("passthorugh fetch %s, status %s, want 200", passthrughOrigin, pos.Status)
+	}
+
+	// Agentgateway intercepts TLS and returns HTTP 403 for a host outside
+	// the policy; Envoy closes the connection at the ClientHello.
 	denied := probeFetch(t, ctx, rc, id, "https://example.org/", "bundle")
 	if os.Getenv(e2e.AtenetDataplaneEnv) == "agentgateway" {
 		if denied.Error != "" || denied.Status != "403" {
 			t.Errorf("fetch of a host outside the policy: error %q, status %s, want HTTP 403", denied.Error, denied.Status)
 		}
-	} else if denied.Error != "Get \"https://example.org/\": EOF" {
-		t.Errorf("fetch of a host outside the policy did not fail at the transport. Error: %s. Status: %s", denied.Error, denied.Status)
+	} else {
+		switch {
+		case denied.Error == "":
+			t.Errorf("fetch of a host outside the policy succeeded with status %s, want the connection closed at the ClientHello", denied.Status)
+		case strings.Contains(denied.Error, "certificate") || strings.Contains(denied.Error, "x509"):
+			t.Errorf("fetch of a host outside the policy was intercepted (certificate error %q), want the connection closed at the ClientHello", denied.Error)
+		case denied.Status != "":
+			t.Errorf("fetch of a host outside the policy got status %s with error %q, want no HTTP exchange at all", denied.Status, denied.Error)
+		}
 	}
 }
 
 // egressOriginHost is the one host the probe actor's EgressPolicy allows.
-const egressOriginHost = "example.com"
+const (
+	egressOriginHost            = "example.com"
+	egressOriginPassthroughHost = "example.edu"
+)
 
 type fetchResponse struct {
 	Status string `json:"status"`
@@ -200,7 +221,7 @@ func createAndResumeActor(t *testing.T, ctx context.Context, clients *e2e.Client
 	}
 	// The gateway refuses every tunnel for an actor without a policy. Naming
 	// only the origin also lets the same actor show a denial.
-	e2e.EnsureEgressPolicy(t, ctx, clients, ref, e2e.EgressAllowHTTPS(egressOriginHost))
+	e2e.EnsureEgressPolicy(t, ctx, clients, ref, e2e.EgressAllowHTTPS(egressOriginHost), e2e.EgressAllowPassthrough(egressOriginPassthroughHost))
 	t.Cleanup(func() {
 		_, _ = clients.SubstrateAPI.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: ref})
 		if _, err := clients.SubstrateAPI.DeleteActor(ctx, &ateapipb.DeleteActorRequest{Actor: ref}); err != nil {

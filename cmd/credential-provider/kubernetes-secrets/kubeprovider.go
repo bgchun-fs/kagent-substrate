@@ -127,8 +127,7 @@ func NewServer(client kubernetes.Interface, nsAuth *NamespaceAuthorizer) *Server
 	return &Server{client: client, nsAuth: nsAuth}
 }
 
-// Grants exposes the enforced atespace→namespace policy for /statusz. Nil
-// when authorization is disabled.
+// Grants exposes the enforced atespace→namespace policy for /statusz.
 func (s *Server) Grants() map[string][]string { return s.nsAuth.Grants() }
 
 // FetchSecret resolves one ate-secret:// URI to its Secret value.
@@ -138,7 +137,8 @@ func (s *Server) FetchSecret(ctx context.Context, req *credproviderpb.FetchSecre
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	if err := s.authorize(ctx, req.GetActorSpiffeId(), ref.Namespace); err != nil {
+	atespace, err := s.authorize(ctx, req.GetActorSpiffeId(), ref.Namespace)
+	if err != nil {
 		return nil, err
 	}
 
@@ -152,12 +152,27 @@ func (s *Server) FetchSecret(ctx context.Context, req *credproviderpb.FetchSecre
 	secret, err := s.client.CoreV1().Secrets(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			return nil, status.Errorf(codes.NotFound, "secret %s/%s not found", ref.Namespace, ref.Name)
+			// Authorization is enforced, so a missing Secret must look the
+			// same as one that fails the label check below: otherwise a
+			// caller could walk a list of names and learn what exists here.
+			return nil, status.Errorf(codes.PermissionDenied, "atespace %q is not permitted to resolve secret %s/%s", atespace, ref.Namespace, ref.Name)
 		}
 		if k8serrors.IsForbidden(err) {
 			return nil, status.Errorf(codes.PermissionDenied, "not permitted to read secret %s/%s", ref.Namespace, ref.Name)
 		}
 		return nil, status.Error(codes.Unavailable, "could not read secret from Kubernetes")
+	}
+
+	// Step 3: the Secret is in hand, so a grant narrowed by label can finally
+	// be settled. This refusal and the NotFound above give the same code and
+	// message, so a caller learns nothing from the difference.
+	if !s.nsAuth.AllowedSecret(atespace, ref.Namespace, secret.GetLabels()) {
+		slog.WarnContext(ctx, "credential request denied: secret does not match the grant",
+			slog.String("atespace", atespace),
+			slog.String("namespace", ref.Namespace),
+			slog.String("secret", ref.Name),
+		)
+		return nil, status.Errorf(codes.PermissionDenied, "atespace %q is not permitted to resolve secret %s/%s", atespace, ref.Namespace, ref.Name)
 	}
 
 	value, err := selectKey(secret.Data, ref.Key)
@@ -167,21 +182,20 @@ func (s *Server) FetchSecret(ctx context.Context, req *credproviderpb.FetchSecre
 	return &credproviderpb.FetchSecretResponse{OpaqueBytes: value}, nil
 }
 
-// authorize enforces the atespace→namespace policy. It derives the atespace from
-// the attested actor SPIFFE ID and denies unless the URI's namespace is in that
-// atespace's allowed list.
-func (s *Server) authorize(ctx context.Context, actorSpiffeID, namespace string) error {
+// authorize checks the actor identity and its namespace grant before reading
+// from Kubernetes. FetchSecret then checks the Secret against any label selector.
+func (s *Server) authorize(ctx context.Context, actorSpiffeID, namespace string) (string, error) {
 	actor, err := resources.ActorRefFromActorSPIFFEID(actorSpiffeID)
 	if err != nil {
 		slog.WarnContext(ctx, "credential request denied: unusable actor identity", slog.Any("err", err))
-		return status.Errorf(codes.PermissionDenied, "actor identity is required and must be a valid actor SPIFFE URI: %v", err)
+		return "", status.Errorf(codes.PermissionDenied, "actor identity is required and must be a valid actor SPIFFE URI: %v", err)
 	}
 	if !s.nsAuth.Allowed(actor.Atespace, namespace) {
 		slog.WarnContext(ctx, "credential request denied: atespace not permitted for namespace",
 			slog.String("atespace", actor.Atespace), slog.String("namespace", namespace))
-		return status.Errorf(codes.PermissionDenied, "atespace %q is not permitted to resolve secrets in namespace %q", actor.Atespace, namespace)
+		return "", status.Errorf(codes.PermissionDenied, "atespace %q is not permitted to resolve secrets in namespace %q", actor.Atespace, namespace)
 	}
-	return nil
+	return actor.Atespace, nil
 }
 
 // selectKey returns the named data entry, or an error when the Secret has no
