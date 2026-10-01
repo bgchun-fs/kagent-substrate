@@ -78,25 +78,12 @@ Plaintext HTTP URL that clients use to reach atenet-router.
 {{- printf "http://%s.%s.svc:80" (include "substrate.fullname" (list "atenet-router" .)) .Release.Namespace -}}
 {{- end -}}
 
-{{- define "substrate.postgres.adminSecretName" -}}
-{{- .Values.postgres.adminSecretRef.name | default "postgres-admin" -}}
-{{- end -}}
-
 {{- define "substrate.postgres.readWriteSecretName" -}}
-{{- .Values.postgres.readWriteConnectionStringSecretRef.name | default (include "substrate.fullname" (list "postgres-readwrite" .)) -}}
+{{- .Values.postgres.readWriteConnectionStringSecretRef.name -}}
 {{- end -}}
 
 {{- define "substrate.postgres.ownerSecretName" -}}
-{{- .Values.postgres.ownerConnectionStringSecretRef.name | default (include "substrate.fullname" (list "postgres-owner" .)) -}}
-{{- end -}}
-
-{{/* Fixed bundled identities. Callers supply only the database endpoint. */}}
-{{- define "substrate.postgres.readWriteConnectionString" -}}
-{{- printf "postgresql://substrate_readwrite_user:substrate-readwrite@%s:5432/%s?%s" .host .database .params -}}
-{{- end -}}
-
-{{- define "substrate.postgres.ownerConnectionString" -}}
-{{- printf "postgresql://substrate_admin_user:substrate-admin@%s:5432/%s?%s" .host .database .params -}}
+{{- .Values.postgres.ownerConnectionStringSecretRef.name -}}
 {{- end -}}
 
 {{/*
@@ -209,7 +196,7 @@ it contains "." or ":" (the containerd rule); otherwise the reference is
 docker.io-implied and the mirror is prefixed. The repository path is preserved
 either way, so a mirror copies images under their existing paths.
 
-Usage: {{ include "substrate.thirdPartyImage" (list .Values.images.postgres .) }}
+Usage: {{ include "substrate.thirdPartyImage" (list .Values.images.rustfs .) }}
 */}}
 {{- define "substrate.thirdPartyImage" -}}
 {{- $ref := index . 0 -}}

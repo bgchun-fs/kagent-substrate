@@ -2,7 +2,7 @@
 
 Helm chart for installing Agent Substrate.
 
-The chart uses mTLS and PostgreSQL by default. It requires the
+The chart uses mTLS and requires a prepared PostgreSQL database. It requires the
 `ClusterTrustBundle`, `ClusterTrustBundleProjection`, and
 `PodCertificateRequest` feature gates plus the `certificates.k8s.io/v1beta1`
 API.
@@ -11,8 +11,10 @@ API.
 # CRDs
 helm upgrade --install substrate-crds ./charts/substrate-crds
 
-# Install Substrate
-helm upgrade --install substrate ./charts/substrate
+# Install Substrate after creating the database identities and Secrets
+helm upgrade --install substrate ./charts/substrate \
+  --set postgres.readWriteConnectionStringSecretRef.name=substrate-postgres-readwrite \
+  --set postgres.ownerConnectionStringSecretRef.name=substrate-postgres-owner
 ```
 
 By default, component images are pulled from `ghcr.io/kagent-dev/substrate`
@@ -40,16 +42,12 @@ See `values.yaml` for the full set; the important keys:
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `postgres.enabled` | `true` | Deploy the bundled PostgreSQL instance |
-| `postgres.readWriteConnectionStringSecretRef` | managed Secret | Read the read/write connection from a Secret |
-| `postgres.ownerConnectionStringSecretRef` | managed Secret | Read the owner connection from a Secret |
-| `postgres.bootstrap` | `true` | Create missing fixed users, roles, schema, and grants on startup; the direct `ateapi` binary defaults to `false` |
-| `postgres.readWriteRole` | `substrate_readwrite` | Role assumed by read/write connections; configurable when bootstrap is disabled |
-| `postgres.ownerRole` | `substrate_owner` | Role assumed by owner connections; configurable when bootstrap is disabled |
-| `postgres.adminSecretRef` | `postgres-admin` | Select the administrator Secret |
+| `postgres.readWriteConnectionStringSecretRef` | `substrate-postgres-readwrite` | Read the read/write connection from a pre-created Secret |
+| `postgres.ownerConnectionStringSecretRef` | `substrate-postgres-owner` | Read the owner connection from a pre-created Secret |
+| `postgres.readWriteRole` | `substrate_readwrite` | Role assumed by read/write connections |
+| `postgres.ownerRole` | `substrate_owner` | Role assumed by owner connections |
 | `postgres.pool.maxConnLifetime` | `""` (pgx default) | Maximum physical connection lifetime; bounds Secret credential turnover |
 | `postgres.schema` | `substrate` | Store the Substrate tables in this PostgreSQL schema |
-| `postgres.storageSize` | `1Gi` | In-cluster PostgreSQL PVC size |
 | `rustfs.enabled` | `true` | Deploy an in-cluster S3-compatible RustFS bucket for snapshots |
 | `atelet.storageBackend` | `s3` | Default snapshot backend, wired to RustFS when `rustfs.enabled=true` |
 | `atelet.gcpAuthForImagePulls` | `false` | Enable only when using GCP registry auth |
@@ -66,17 +64,11 @@ See `values.yaml` for the full set; the important keys:
 
 ## PostgreSQL credential rotation
 
-The bundled PostgreSQL pod creates `postgres.database` (`atepg` by default). The chart uses the same database name in both managed connection Secrets. Under Kagent, the umbrella chart supplies its bundled PostgreSQL Service address and `kagent` database name to Substrate's fixed credential templates.
-
-The Substrate binary also has these fixed development usernames and passwords. During bootstrap it checks both connection Secrets against those constants, then uses the constants to create missing users. Bootstrap runs on every `ateapi` pod start while `postgres.bootstrap=true`. It never changes an existing user's password. To use different credentials, create the users yourself and disable bootstrap.
-
-The chart's default administrator and application passwords are fixed, published values. This bundled bootstrap setup is for development and evaluation, not production. For production, provision unique users and permissions outside Substrate, supply connection Secrets, and set `postgres.bootstrap=false`.
-
-The Substrate binary executes `cmd/ateapi/internal/store/atepg/identity.sql` from the Substrate repository during bootstrap. Operators can run that same file after supplying its transaction-local settings; it is separate from table migrations.
-For manual provisioning with custom chart role names, set the optional
-`substrate.bootstrap_owner_role` and `substrate.bootstrap_readwrite_role`
-transaction-local settings before running the file. They default to the fixed
-development names; bundled binary bootstrap passes those names explicitly.
+The chart does not deploy or initialize PostgreSQL. Prepare the database,
+schema, login users, and the configured `readWriteRole` and `ownerRole` before
+installing the chart. For development, `ate-setup` and `kagent install` can
+create and prepare an in-cluster PostgreSQL instance before they install the
+applications.
 
 Substrate mounts connection Secrets as projected files. Kubernetes updates
 these files when the Secret changes. Substrate reads the current value for
@@ -88,20 +80,12 @@ credentials valid long enough for Kubernetes projection and connection
 turnover.
 
 When rotation changes a login username, grant the applicable configured group
-role. Bootstrap uses the fixed `substrate_readwrite` and `substrate_owner` roles.
-
-For bundled PostgreSQL, first create replacement logins and connection Secrets.
-Then set `postgres.bootstrap=false` and set both connection Secret references
-in the same Helm upgrade. PostgreSQL remains bundled, but Substrate stops
-creating or verifying the fixed login users. The bundled PostgreSQL pod still
-uses its administrator Secret; the API server no longer mounts it. Bootstrap
-never changes the password of an existing login.
+role before updating its connection Secret.
 
 Substrate runs `SET ROLE` for each new connection. It rejects a login without
 the required membership.
 
-Set `postgres.bootstrap=false` for a BYO database. Create both group roles and
-all grants before installation, then set `postgres.readWriteRole` and
+Create both group roles and all grants before installation, then set `postgres.readWriteRole` and
 `postgres.ownerRole` to those names. Use distinct roles and table schemas for
 separate installs sharing one database. Give each install separate logins and
 grant each login membership only in its install's roles.

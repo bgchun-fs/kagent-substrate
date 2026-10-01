@@ -14,20 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */}}
 
-{{- if not (kindIs "bool" .Values.postgres.bootstrap) }}
-{{- fail "postgres.bootstrap must be true or false" }}
+{{- if not .Values.postgres.readWriteConnectionStringSecretRef.name }}
+{{- fail "postgres.readWriteConnectionStringSecretRef.name is required" }}
 {{- end }}
-{{- if and .Values.postgres.enabled .Values.postgres.bootstrap (or .Values.postgres.readWriteConnectionStringSecretRef.name .Values.postgres.ownerConnectionStringSecretRef.name) }}
-{{- fail "postgres.bootstrap requires the chart-managed application Secrets; disable bootstrap for operator-managed Secrets" }}
-{{- end }}
-{{- if and (or (not .Values.postgres.enabled) (not .Values.postgres.bootstrap)) (not .Values.postgres.readWriteConnectionStringSecretRef.name) }}
-{{- fail "postgres.readWriteConnectionStringSecretRef.name is required when bootstrap is disabled or PostgreSQL is external" }}
-{{- end }}
-{{- if and (or (not .Values.postgres.enabled) (not .Values.postgres.bootstrap)) (not .Values.postgres.ownerConnectionStringSecretRef.name) }}
-{{- fail "postgres.ownerConnectionStringSecretRef.name is required when bootstrap is disabled or PostgreSQL is external" }}
-{{- end }}
-{{- if and .Values.postgres.bootstrap (not .Values.postgres.enabled) (not .Values.postgres.adminSecretRef.name) }}
-{{- fail "postgres.adminSecretRef.name is required when bootstrap is enabled without bundled PostgreSQL" }}
+{{- if not .Values.postgres.ownerConnectionStringSecretRef.name }}
+{{- fail "postgres.ownerConnectionStringSecretRef.name is required" }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
