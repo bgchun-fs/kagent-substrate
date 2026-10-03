@@ -64,13 +64,17 @@ For the manifest installer, set your grants in
 ```sh
 kubectl kustomize manifests/egress-credential-injection | ko apply -f -
 hack/install-ate.sh --deploy-atenet \
-  --atenet-dataplane=agentgateway --experimental-use-sdsmint
+  --atenet-dataplane=agentgateway --credential-provider='{"enabled":false}'
 ```
 
-The policy file uses `policies:` with the same list of grants as the Helm values.
-Its generated ConfigMap name changes with the policy, rolling the provider on
-reapplication. Direct policy ConfigMap edits require a rollout restart. Client CA
-bundles and serving certificates reload automatically for new TLS connections.
+The provider is deployed separately above, so the installer's provider selection
+is disabled. The fork's agentgateway manifest already points at that provider.
+Set grants under `data.namespace-policy.yaml` in the policy ConfigMap, using
+`policies:` with the same list as the Helm values. After applying policy changes,
+restart the provider with `kubectl rollout restart -n ate-system
+deployment/k8s-credential-provider`. Helm policy changes trigger a rollout
+automatically. Client CA bundles and serving certificates reload automatically
+for new TLS connections.
 
 ## Configure injection
 
