@@ -41,7 +41,10 @@ See `values.yaml` for the full set; the important keys:
 | Key | Default | Notes |
 |-----|---------|-------|
 | `postgres.enabled` | `true` | Deploy the bundled PostgreSQL instance |
-| `postgres.connectionString` | `""` (in-cluster) | Override to use external PostgreSQL |
+| `postgres.readWriteConnectionString` | `""` (in-cluster) | Runtime connection; required for external PostgreSQL |
+| `postgres.ownerConnectionString` | `""` (read/write connection) | Connection for migrations and partition maintenance |
+| `postgres.readWriteRole` | `postgres` | Role assumed by runtime connections |
+| `postgres.ownerRole` | `postgres` | Role assumed by migration and partition maintenance connections |
 | `postgres.schema` | `public` | Store the Substrate tables in this PostgreSQL schema |
 | `postgres.storageSize` | `1Gi` | In-cluster PostgreSQL PVC size |
 | `rustfs.enabled` | `true` | Deploy an in-cluster S3-compatible RustFS bucket for snapshots |

@@ -25,8 +25,10 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
@@ -60,14 +62,17 @@ func TestProviderManifests(t *testing.T) {
 			}
 			decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
 			var providerFound, portFound, policyFound, accountFound bool
-			var roleFound, bindingFound bool
+			var roleFound, bindingFound, networkPolicyFound bool
 			for {
 				var doc struct {
 					Kind     string
 					Metadata metav1.ObjectMeta
 					Spec     struct {
-						Template corev1.PodTemplateSpec
-						Ports    []corev1.ServicePort
+						Template    corev1.PodTemplateSpec
+						Ports       []corev1.ServicePort
+						PodSelector metav1.LabelSelector
+						PolicyTypes []networkingv1.PolicyType
+						Ingress     []networkingv1.NetworkPolicyIngressRule
 					}
 					Data     map[string]string
 					Rules    []rbacv1.PolicyRule
@@ -107,6 +112,23 @@ func TestProviderManifests(t *testing.T) {
 					}
 				}
 				switch doc.Kind {
+				case "NetworkPolicy":
+					if doc.Metadata.Name != tc.prefix+"k8s-credential-provider" {
+						continue
+					}
+					networkPolicyFound = true
+					want := networkingv1.NetworkPolicySpec{
+						PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": tc.prefix + "k8s-credential-provider"}},
+						PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+						Ingress: []networkingv1.NetworkPolicyIngressRule{{
+							From:  []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": tc.prefix + "atenet-egress"}}}},
+							Ports: []networkingv1.NetworkPolicyPort{{Protocol: new(corev1.ProtocolTCP), Port: new(intstr.FromInt32(50051))}},
+						}},
+					}
+					got := networkingv1.NetworkPolicySpec{PodSelector: doc.Spec.PodSelector, PolicyTypes: doc.Spec.PolicyTypes, Ingress: doc.Spec.Ingress}
+					if !reflect.DeepEqual(got, want) {
+						t.Errorf("provider network policy = %#v, want %#v", got, want)
+					}
 				case "ServiceAccount":
 					if doc.Metadata.Name == tc.prefix+"k8s-credential-provider" {
 						accountFound = true
@@ -203,6 +225,9 @@ func TestProviderManifests(t *testing.T) {
 			}
 			if !providerFound || !portFound || !policyFound || !accountFound {
 				t.Fatalf("provider=%v port=%v policy=%v account=%v", providerFound, portFound, policyFound, accountFound)
+			}
+			if !networkPolicyFound {
+				t.Error("missing provider network policy")
 			}
 			if !roleFound || !bindingFound {
 				t.Fatalf("role=%v binding=%v", roleFound, bindingFound)
