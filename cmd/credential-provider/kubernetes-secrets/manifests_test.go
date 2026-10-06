@@ -236,7 +236,7 @@ func TestProviderManifests(t *testing.T) {
 	}
 }
 
-func TestAgentgatewayCredentialConfiguration(t *testing.T) {
+func TestHelmAgentgatewayCredentialConfiguration(t *testing.T) {
 	for _, tc := range []struct {
 		name, tool, host, roots string
 		args                    []string
@@ -245,8 +245,6 @@ func TestAgentgatewayCredentialConfiguration(t *testing.T) {
 			args: []string{"template", "substrate", "../../../charts/substrate", "-n", "ate-system"}},
 		{name: "custom release", tool: "helm", host: "test-k8s-credential-provider.custom.svc:50051", roots: "/run/servicedns.podcert.ate.dev/trust-bundle.pem",
 			args: []string{"template", "test", "../../../charts/substrate", "-n", "custom"}},
-		{name: "kustomize", tool: "kubectl", host: "k8s-credential-provider.ate-system.svc:50051", roots: "/run/servicedns-ca/trust-bundle.pem",
-			args: []string{"kustomize", "--load-restrictor=LoadRestrictionsNone", "../../../manifests/ate-install/agentgateway-egress"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := exec.LookPath(tc.tool); err != nil {
