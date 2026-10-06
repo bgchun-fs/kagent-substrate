@@ -20,10 +20,10 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/cmd/ateapi/internal/store/storetest"
+	"github.com/agent-substrate/substrate/internal/apierror"
 	"github.com/agent-substrate/substrate/internal/resources"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -61,7 +61,7 @@ func TestCreateActor_DoesNotInheritGoldenEgressPolicy(t *testing.T) {
 					t.Fatal(err)
 				}
 				ref := resources.ActorRefFromActor(actor).ToObjectRef()
-				if _, err := svc.GetActorEgressPolicy(ctx, &ateapipb.GetActorEgressPolicyRequest{Actor: ref}); status.Code(err) != codes.NotFound {
+				if _, err := svc.GetActorEgressPolicy(ctx, &ateapipb.GetActorEgressPolicyRequest{Actor: ref}); apierror.Code(err) != codes.NotFound {
 					t.Fatalf("ordinary actor inherited golden policy: %v, want NotFound", err)
 				}
 				if _, err := svc.CreateActorEgressPolicy(ctx, &ateapipb.CreateActorEgressPolicyRequest{
@@ -120,7 +120,7 @@ func TestReconcileOne_GoldenEgressPolicyBeforeResume(t *testing.T) {
 				}
 				policy, err := svc.GetActorEgressPolicy(ctx, &ateapipb.GetActorEgressPolicyRequest{Actor: ref})
 				if tt.policy == nil {
-					if status.Code(err) != codes.NotFound {
+					if apierror.Code(err) != codes.NotFound {
 						t.Fatalf("golden without configured policy: %v, want NotFound", err)
 					}
 					return nil, stop
